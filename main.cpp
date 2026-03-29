@@ -1,8 +1,8 @@
 /*
- * Buffer Manager - Gerenciador de Buffer com políticas LRU, FIFO, CLOCK e MRU
+ * gerenciador de Buffer com políticas LRU, FIFO, CLOCK e MRU
  *
- * Compilação: g++ -o buffer_manager main.cpp
- * Uso: ./buffer_manager <arquivo_texto> <política: LRU|FIFO|CLOCK|MRU>
+ * compilação: g++ -o buffer_manager main.cpp
+ * como usar: ./buffer_manager <arquivo_texto> <política: LRU|FIFO|CLOCK|MRU>
  */
 
 #include <iostream>
@@ -22,9 +22,9 @@ using namespace std;
 const int BUFFER_SIZE = 5; // Número máximo de entradas no buffer
 
 // ─── Estrutura de uma entrada do buffer ────────────────────────────────────────
-struct BufferEntry {
+struct Page {
     int    pageId;      // Identificador da página (page#)
-    std::string content;// Conteúdo da linha de texto
+    std::string content; // Conteúdo da linha de texto
     bool   dirty;       // Variável de atualização (TRUE = foi modificada)
 };
 
@@ -37,7 +37,7 @@ enum Policy { LRU, FIFO, CLOCK_POL, MRU };
 class BufferManager {
 private:
     // --- Estado do buffer ---
-    vector<BufferEntry> buffer;       // Entradas em memória
+    vector<Page> buffer;       // Entradas em memória
     int  cacheHit  = 0;
     int  cacheMiss = 0;
     Policy policy;
@@ -79,7 +79,8 @@ private:
         int lineNum = 0;
         while (getline(file, line)) {
             lineNum++;
-            if (lineNum == key) {
+            if (lineNum == 1) continue; // Ignora o header na primeira linha
+            if (lineNum - 1 == key) {
                 // Remove aspas duplas no início e no fim, se existirem
                 if (line.size() >= 2 && line.front() == '"' && line.back() == '"')
                     line = line.substr(1, line.size() - 2);
@@ -174,7 +175,7 @@ public:
         if (buffer.empty()) return;
 
         int idx = selectVictim();
-        BufferEntry& victim = buffer[idx];
+        Page& victim = buffer[idx];
 
         // Exibe a página removida
         cout << "[EVICT] Página " << victim.pageId
@@ -235,7 +236,7 @@ public:
                 Evict();
 
             // Cria nova entrada
-            BufferEntry entry;
+            Page entry;
             entry.pageId  = key;
             entry.content = line;
             entry.dirty   = randomDirty();
