@@ -1,7 +1,7 @@
 /*
  * gerenciador de Buffer com políticas LRU, FIFO, CLOCK e MRU
  *
- * compilação: g++ -o buffer_manager main.cpp
+ * compilação: g++ -o buffer_manager buffer_manager.cpp
  * como usar: ./buffer_manager <arquivo_texto> <política: LRU|FIFO|CLOCK|MRU>
  */
 
@@ -23,9 +23,9 @@ const int BUFFER_SIZE = 5; // Número máximo de entradas no buffer
 
 // ─── Estrutura de uma entrada do buffer ────────────────────────────────────────
 struct Page {
-    int    pageId;      // Identificador da página (page#)
-    std::string content; // Conteúdo da linha de texto
-    bool   dirty;       // Variável de atualização (TRUE = foi modificada)
+    int    pageId;       // Identificador da página (page#)
+    string content;      // Conteúdo da linha de texto
+    bool   dirty;        // Variável de atualização (TRUE = foi modificada)
 };
 
 // ─── Políticas disponíveis ─────────────────────────────────────────────────────
@@ -37,78 +37,80 @@ enum Policy { LRU, FIFO, CLOCK_POL, MRU };
 class BufferManager {
 private:
     // --- Estado do buffer ---
-    vector<Page> buffer;       // Entradas em memória
+    vector<Page> buffer;
     int  cacheHit  = 0;
     int  cacheMiss = 0;
     Policy policy;
 
     // --- Estruturas auxiliares por política ---
-
-    // LRU / MRU: lista de acesso ordenada por tempo de uso
-    //   front = mais recentemente usado, back = menos recentemente usado
-    list<int> lruOrder; // armazena pageId na ordem de acesso
-
-    // FIFO: lista de inserção
-    list<int> fifoOrder; // front = mais antigo
+    list<int> lruOrder;  // front = mais recente, back = menos recente (LRU/MRU)
+    list<int> fifoOrder; // front = mais antigo (FIFO)
 
     // CLOCK: ponteiro circular + bit de referência por posição no buffer
-    int  clockHand = 0;
-    vector<bool> refBit; // bit de referência para cada slot do buffer
+    int          clockHand = 0;
+    vector<bool> refBit;
 
     // --- Arquivo de texto ---
     string filename;
 
     // ── Utilitários internos ──────────────────────────────────────────────────
 
-    // Verifica se uma página está no buffer; retorna índice ou -1
     int findInBuffer(int key) {
         for (int i = 0; i < (int)buffer.size(); i++)
             if (buffer[i].pageId == key) return i;
         return -1;
     }
 
-    // Lê a linha de número 'key' (1-indexed) do arquivo CSV
-    // Remove aspas duplas ao redor do conteúdo, se presentes
+    // Lê a linha de número 'key' (1-indexed, ignorando header) do arquivo CSV.
+    // Trata aspas externas e desescapa "" → " no interior.
     string readFromFile(int key) {
         ifstream file(filename);
         if (!file.is_open()) {
-            cerr << "[ERRO] Não foi possível abrir o arquivo: " << filename << "\n";
+            fprintf(stderr, "[ERRO] Não foi possível abrir o arquivo: %s\n", filename.c_str());
             return "";
         }
         string line;
         int lineNum = 0;
         while (getline(file, line)) {
+            // Remove \r de arquivos com line endings Windows (CRLF)
+            if (!line.empty() && line.back() == '\r')
+                line.pop_back();
+
             lineNum++;
-            if (lineNum == 1) continue; // Ignora o header na primeira linha
+            if (lineNum == 1) continue; // ignora header
             if (lineNum - 1 == key) {
-                // Remove aspas duplas no início e no fim, se existirem
+                // Remove aspas externas, se existirem
                 if (line.size() >= 2 && line.front() == '"' && line.back() == '"')
                     line = line.substr(1, line.size() - 2);
-                return line;
+
+                // Desescapa aspas duplas internas ("" → ")
+                string result;
+                for (size_t i = 0; i < line.size(); i++) {
+                    if (line[i] == '"' && i + 1 < line.size() && line[i + 1] == '"')
+                        i++; // consome a aspa extra
+                    result += line[i];
+                }
+                return result;
             }
         }
         return ""; // página não encontrada
     }
 
-    // Gera valor booleano aleatório para o bit dirty
     bool randomDirty() {
         return (rand() % 2) == 1;
     }
 
     // ── Lógica de ordem por política ─────────────────────────────────────────
 
-    // Registra acesso a uma página (para LRU e MRU)
     void recordAccess(int pageId) {
         lruOrder.remove(pageId);
-        lruOrder.push_front(pageId); // frente = mais recente
+        lruOrder.push_front(pageId);
     }
 
-    // Registra inserção de uma página (para FIFO)
     void recordInsert(int pageId) {
-        fifoOrder.push_back(pageId); // fundo = mais novo → frente = mais velho
+        fifoOrder.push_back(pageId);
     }
 
-    // Remove uma chave das listas auxiliares (ao fazer evict)
     void removeFromAux(int pageId) {
         lruOrder.remove(pageId);
         fifoOrder.remove(pageId);
@@ -116,38 +118,31 @@ private:
 
     // ── Seleção de vítima por política ────────────────────────────────────────
 
-    // Retorna o índice no buffer da entrada a ser removida
     int selectVictim() {
         switch (policy) {
 
         case LRU: {
-            // A vítima é a página menos recentemente usada (fundo da lista)
             int victim = lruOrder.back();
             return findInBuffer(victim);
         }
 
         case MRU: {
-            // A vítima é a página mais recentemente usada (frente da lista)
             int victim = lruOrder.front();
             return findInBuffer(victim);
         }
 
         case FIFO: {
-            // A vítima é a página mais antiga (frente da lista de inserção)
             int victim = fifoOrder.front();
             return findInBuffer(victim);
         }
 
         case CLOCK_POL: {
-            // Ponteiro percorre circularmente; zera bit de referência até achar 0
             while (true) {
                 if (!refBit[clockHand]) {
-                    // Sem referência recente → é a vítima
                     int victimIdx = clockHand;
                     clockHand = (clockHand + 1) % BUFFER_SIZE;
                     return victimIdx;
                 } else {
-                    // Dá segunda chance: zera o bit e avança
                     refBit[clockHand] = false;
                     clockHand = (clockHand + 1) % BUFFER_SIZE;
                 }
@@ -155,7 +150,7 @@ private:
         }
 
         } // end switch
-        return 0; // fallback (nunca alcançado)
+        return 0;
     }
 
 public:
@@ -164,7 +159,6 @@ public:
         : filename(file), policy(p)
     {
         srand((unsigned)time(nullptr));
-        // Inicializa vetor de bits de referência (CLOCK)
         refBit.assign(BUFFER_SIZE, false);
     }
 
@@ -177,26 +171,21 @@ public:
         int idx = selectVictim();
         Page& victim = buffer[idx];
 
-        // Exibe a página removida
-        cout << "[EVICT] Página " << victim.pageId
-             << " removida | Conteúdo: \"" << victim.content << "\"";
-        if (victim.dirty)
-            cout << " W"; // página suja → teria de ser escrita em disco
-        cout << "\n";
+        printf("[EVICT] Página %d removida | Conteúdo: \"%s\"%s\n",
+               victim.pageId,
+               victim.content.c_str(),
+               victim.dirty ? " W" : "");
+        fflush(stdout);
 
-        // Remove das estruturas auxiliares
         removeFromAux(victim.pageId);
 
-        // Remove do buffer (shift do vetor; ajusta clockHand se necessário)
         if (policy == CLOCK_POL) {
-            // Após remover o slot 'idx', entradas após ele deslocam uma posição
-            // Ajusta o ponteiro do clock para não pular nem repetir
             if (clockHand > idx)
                 clockHand--;
             else if (clockHand == (int)buffer.size() - 1)
                 clockHand = 0;
             refBit.erase(refBit.begin() + idx);
-            refBit.push_back(false); // novo slot ao final (livre)
+            refBit.push_back(false);
         }
 
         buffer.erase(buffer.begin() + idx);
@@ -211,31 +200,33 @@ public:
         if (idx != -1) {
             // ── Cache HIT ──────────────────────────────────────────────────
             cacheHit++;
-            cout << "[FETCH] Cache HIT  | Página " << key
-                 << " → \"" << buffer[idx].content << "\"\n";
+            printf("[FETCH] Cache HIT  | Página %d → \"%s\"\n",
+                   key, buffer[idx].content.c_str());
+            fflush(stdout);
 
-            // Atualiza estruturas de ordem
             if (policy == LRU || policy == MRU)
                 recordAccess(key);
             if (policy == CLOCK_POL)
-                refBit[idx] = true; // renova referência
+                refBit[idx] = true;
 
         } else {
             // ── Cache MISS ─────────────────────────────────────────────────
             cacheMiss++;
             string line = readFromFile(key);
             if (line.empty()) {
-                cout << "[FETCH] Página " << key << " não encontrada no arquivo.\n";
+                printf("[FETCH] Página %d não encontrada no arquivo.\n", key);
+                fflush(stdout);
                 return;
             }
-            cout << "[FETCH] Cache MISS | Página " << key
-                 << " lida do arquivo → \"" << line << "\"\n";
+
+            printf("[FETCH] Cache MISS | Página %d lida do arquivo → \"%s\"\n",
+                   key, line.c_str());
+            fflush(stdout);
 
             // Se buffer cheio, evict antes de inserir
             if ((int)buffer.size() >= BUFFER_SIZE)
                 Evict();
 
-            // Cria nova entrada
             Page entry;
             entry.pageId  = key;
             entry.content = line;
@@ -244,13 +235,12 @@ public:
             buffer.push_back(entry);
             int newIdx = (int)buffer.size() - 1;
 
-            // Registra nas estruturas auxiliares
             if (policy == LRU || policy == MRU)
                 recordAccess(key);
             if (policy == FIFO)
                 recordInsert(key);
             if (policy == CLOCK_POL)
-                refBit[newIdx] = true; // recém carregada → referência ativa
+                refBit[newIdx] = true;
         }
     }
 
@@ -258,16 +248,15 @@ public:
     // DisplayCache(): exibe o estado atual do buffer
     // ─────────────────────────────────────────────────────────────────────────
     void DisplayCache() {
-        cout << "\n╔══════════════════════════════════════════════════════╗\n";
-        cout << "║                   ESTADO DO BUFFER                  ║\n";
-        cout << "╠═══════╦═══════════════════════════════════╦══════════╣\n";
-        cout << "║ Chave ║ Valor (conteúdo)                  ║ Dirty    ║\n";
-        cout << "╠═══════╬═══════════════════════════════════╬══════════╣\n";
+        printf("\n╔══════════════════════════════════════════════════════╗\n");
+        printf("║                   ESTADO DO BUFFER                  ║\n");
+        printf("╠═══════╦═══════════════════════════════════╦══════════╣\n");
+        printf("║ Chave ║ Valor (conteúdo)                  ║ Dirty    ║\n");
+        printf("╠═══════╬═══════════════════════════════════╬══════════╣\n");
         if (buffer.empty()) {
-            cout << "║             (buffer vazio)                          ║\n";
+            printf("║             (buffer vazio)                          ║\n");
         } else {
             for (auto& e : buffer) {
-                // Trunca conteúdo para caber na tabela
                 string disp = e.content;
                 if (disp.size() > 33) disp = disp.substr(0, 30) + "...";
                 printf("║ %-5d ║ %-33s ║ %-8s ║\n",
@@ -276,7 +265,8 @@ public:
                        e.dirty ? "TRUE" : "FALSE");
             }
         }
-        cout << "╚═══════╩═══════════════════════════════════╩══════════╝\n\n";
+        printf("╚═══════╩═══════════════════════════════════╩══════════╝\n\n");
+        fflush(stdout);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -286,13 +276,14 @@ public:
         int total = cacheHit + cacheMiss;
         double hitRate  = total > 0 ? 100.0 * cacheHit  / total : 0.0;
         double missRate = total > 0 ? 100.0 * cacheMiss / total : 0.0;
-        cout << "\n┌─────────────────────────────────┐\n";
-        cout << "│         ESTATÍSTICAS            │\n";
-        cout << "├─────────────────────────────────┤\n";
+        printf("\n┌─────────────────────────────────┐\n");
+        printf("│         ESTATÍSTICAS            │\n");
+        printf("├─────────────────────────────────┤\n");
         printf("│  Cache HIT  : %-5d  (%.1f%%)   │\n", cacheHit,  hitRate);
         printf("│  Cache MISS : %-5d  (%.1f%%)   │\n", cacheMiss, missRate);
         printf("│  Total      : %-5d            │\n", total);
-        cout << "└─────────────────────────────────┘\n\n";
+        printf("└─────────────────────────────────┘\n\n");
+        fflush(stdout);
     }
 };
 
@@ -304,40 +295,42 @@ Policy parsePolicy(const string& s) {
     if (s == "MRU")   return MRU;
     if (s == "FIFO")  return FIFO;
     if (s == "CLOCK") return CLOCK_POL;
-    std::cerr << "[ERRO] Política inválida. Use: LRU | FIFO | CLOCK | MRU\n";
+    fprintf(stderr, "[ERRO] Política inválida. Use: LRU | FIFO | CLOCK | MRU\n");
     exit(1);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// main(): demonstra o gerenciador com sequência de acessos interativa
+// main()
 // ═══════════════════════════════════════════════════════════════════════════════
 int main(int argc, char* argv[]) {
     if (argc < 3) {
-        std::cerr << "Uso: " << argv[0] << " <arquivo.txt> <LRU|FIFO|CLOCK|MRU>\n";
+        fprintf(stderr, "Uso: %s <arquivo.txt> <LRU|FIFO|CLOCK|MRU>\n", argv[0]);
         return 1;
     }
 
-    std::string filename = argv[1];
-    Policy policy = parsePolicy(argv[2]);
+    string filename = argv[1];
+    Policy policy   = parsePolicy(argv[2]);
 
-    std::cout << "Buffer Manager iniciado.\n"
-              << "Arquivo  : " << filename  << "\n"
-              << "Política : " << argv[2]   << "\n"
-              << "Tamanho máximo do buffer: " << BUFFER_SIZE << "\n\n";
+    printf("Buffer Manager iniciado.\n");
+    printf("Arquivo  : %s\n", filename.c_str());
+    printf("Política : %s\n", argv[2]);
+    printf("Tamanho máximo do buffer: %d\n\n", BUFFER_SIZE);
 
     BufferManager bm(filename, policy);
 
     // ── Menu interativo ───────────────────────────────────────────────────────
-    std::string cmd;
+    string cmd;
     while (true) {
-        std::cout << "─────────────────────────────────────────────────────\n";
-        std::cout << "Comandos: fetch <n> | display | stats | quit\n> ";
-        std::cin >> cmd;
+        printf("─────────────────────────────────────────────────────\n");
+        printf("Comandos: fetch <n> | display | stats | quit\n> ");
+        fflush(stdout);
+
+        if (!(cin >> cmd)) break; // EOF
 
         if (cmd == "fetch") {
             int key;
-            std::cin >> key;
-            bm.Fetch(key);
+            if (cin >> key)
+                bm.Fetch(key);
         } else if (cmd == "display") {
             bm.DisplayCache();
         } else if (cmd == "stats") {
@@ -347,7 +340,7 @@ int main(int argc, char* argv[]) {
             bm.DisplayStats();
             break;
         } else {
-            std::cout << "Comando desconhecido.\n";
+            printf("Comando desconhecido.\n");
         }
     }
 
