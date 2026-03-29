@@ -8,7 +8,7 @@ TARGET   = $(BIN_DIR)/buffer_manager
 SRC      = $(SRC_DIR)/main.cpp
 
 # Arquivo e política padrão para o target run (sobrescrevível via CLI)
-FILE     ?= bancodedados.csv
+FILE     ?= data/bancodedados.csv
 POLICY   ?= LRU
 
 # ─── Targets ──────────────────────────────────────────────────────────────────

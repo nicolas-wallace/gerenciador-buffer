@@ -156,7 +156,7 @@ private:
 public:
     // ── Construtor ────────────────────────────────────────────────────────────
     BufferManager(const string& file, Policy p)
-        : filename(file), policy(p)
+        : policy(p), filename(file)
     {
         srand((unsigned)time(nullptr));
         refBit.assign(BUFFER_SIZE, false);
@@ -304,7 +304,7 @@ Policy parsePolicy(const string& s) {
 // ═══════════════════════════════════════════════════════════════════════════════
 int main(int argc, char* argv[]) {
     if (argc < 3) {
-        fprintf(stderr, "Uso: %s <arquivo.txt> <LRU|FIFO|CLOCK|MRU>\n", argv[0]);
+        printf("PARA EXECUTAR: make run FILE=<arquivo.txt/csv> POLICY=<LRU|FIFO|CLOCK|MRU>\n");
         return 1;
     }
 

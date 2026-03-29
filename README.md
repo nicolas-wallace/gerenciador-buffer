@@ -27,13 +27,13 @@ O binário é gerado em `/bin/buffer_manager`.
 ## Uso
 
 ```bash
-make run FILE=<arquivo.csv> POLICY=<POLÍTICA>
+make run FILE=data/<arquivo.csv> POLICY=<POLÍTICA>
 ```
 
 **Exemplo:**
 
 ```bash
-make run FILE=bancodedados.csv POLICY=LRU
+make run FILE=data/bancodedados.csv POLICY=LRU
 ```
 
 Ou diretamente após compilar:
